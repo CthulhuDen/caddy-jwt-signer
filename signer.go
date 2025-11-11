@@ -77,8 +77,10 @@ func (s *JwtSigner) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 
 	s.l.Debug("Parsed duration", zap.String("as_str", durStr), zap.Float64("seconds", dur.Seconds()))
 
-	cs := jwt.MapClaims{}
-	fillClaims(s.Claims, repl, s.l, &cs)
+	cs := fillClaims(s.Claims, repl, s.l)
+	if cs == nil {
+		cs = jwt.MapClaims{}
+	}
 
 	now := time.Now()
 	cs["iat"] = now.Unix()
@@ -96,7 +98,7 @@ func (s *JwtSigner) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 	return next.ServeHTTP(w, r)
 }
 
-func fillClaims(pat jwt.MapClaims, repl *caddy.Replacer, l *zap.Logger, claims *jwt.MapClaims) {
+func fillClaims(pat jwt.MapClaims, repl *caddy.Replacer, l *zap.Logger) jwt.MapClaims {
 	cs := jwt.MapClaims{}
 
 	for k, v := range pat {
@@ -108,9 +110,8 @@ func fillClaims(pat jwt.MapClaims, repl *caddy.Replacer, l *zap.Logger, claims *
 				cs[k] = valExpanded
 			}
 		case map[string]any:
-			nested := jwt.MapClaims(nil)
 			l.Debug("Descending into nested map", zap.String("key", k))
-			fillClaims(val, repl, l, &nested)
+			nested := fillClaims(val, repl, l)
 			if nested != nil {
 				cs[k] = nested
 			}
@@ -122,9 +123,11 @@ func fillClaims(pat jwt.MapClaims, repl *caddy.Replacer, l *zap.Logger, claims *
 
 	l.Debug("Finalize current map", zap.Int("length", len(cs)))
 
-	if len(cs) > 0 {
-		*claims = cs
+	if len(cs) == 0 {
+		return nil
 	}
+
+	return cs
 }
 
 func (*JwtSigner) CaddyModule() caddy.ModuleInfo {
